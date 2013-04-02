@@ -44,7 +44,7 @@ int main( int argc, char *argv[] )
 #define NUM_OPS 2
 #define OP_READ 0
 #define OP_WRITE 1
-
+	
 	for (i = 0; i < niter; i++) {
 	  if (failed_disk != -1) {
 	    if ((rand() % PROB_RECOVER) == 0) {

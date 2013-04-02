@@ -8,22 +8,28 @@
 
 int MAXSIZE = 35;
 int verbose = 0; 
+char buffer[BLOCK_SIZE];
 int level;
 int strip;
 int ndisks;
 int nblocks; 
 char * trace; 
 int opt;
+int * hasFailed;
 disk_array_t da;
 
 void readRaid0 (int LBA, int SIZE);
 void writeRaid0 (int LBA, int SIZE, int VALUE);
 
+void readRaid10 (int LBA, int SIZE);
+void writeRaid10 (int LBA, int SIZE, int VALUE);
+void recoverRaid10 (int DISK);
+
 void print_usage();
 
 int main(int argc, char * argv[]) {
 
-    if (argc < 5 || args > 6) {
+    if (argc < 5 || argc > 6) {
         exit(1);
     }
 
@@ -78,7 +84,7 @@ int main(int argc, char * argv[]) {
 
     //May technically be unnecessary as read/write returns -1 if disk has failed. However, it also returns -1 on other failures, but we probably don't have to worry about those.
     //Remove if it causes problems
-    int hasFailed[ndisks];
+    if ((hasFailed = malloc(sizeof(int)*ndisks)) == NULL)  exit(1);
     memset(hasFailed, 0, sizeof(int) *ndisks);
 
     FILE * fd = fopen(trace, "r");
@@ -87,13 +93,9 @@ int main(int argc, char * argv[]) {
         exit(1);
     }
 
-    if ((line = malloc(sizeof(char)*MAXSIZE)) == NULL) {
-        exit(1);
-    }
-
-
     char * line;
-    char buffer[BLOCK_SIZE];
+    if ((line = malloc(sizeof(char)*MAXSIZE)) == NULL)  exit(1);
+
     char * cmd; 
     int shouldExit = 0; 
 
@@ -121,7 +123,7 @@ int main(int argc, char * argv[]) {
 
                     break;
                 case 10:
-
+                    readRaid10(LBA, SIZE);
                     break;
                 default:
                     printf("ERROR: Reached impossible default block of read switch statement");
@@ -132,7 +134,7 @@ int main(int argc, char * argv[]) {
         {
             int LBA = atoi(strtok(NULL, " "));
             int SIZE = atoi(strtok(NULL, " "));
-            int VALUE = strtok(NULL, " ");
+            int VALUE = atoi(strtok(NULL, " "));
 
             switch(level){
                 case 0:
@@ -145,7 +147,7 @@ int main(int argc, char * argv[]) {
 
                     break;
                 case 10:
-
+                    writeRaid10(LBA, SIZE, VALUE);
                     break;
                 default:
                     printf("ERROR: Reached impossible default block of write switch statement");
@@ -160,7 +162,6 @@ int main(int argc, char * argv[]) {
 
             switch(level){
                 case 0:
-
                     break;
                 case 4:
 
@@ -169,7 +170,6 @@ int main(int argc, char * argv[]) {
 
                     break;
                 case 10:
-
                     break;
                 default:
                     printf("ERROR: Reached impossible default block of fail switch statement");
@@ -192,7 +192,7 @@ int main(int argc, char * argv[]) {
 
                     break;
                 case 10:
-
+                    recoverRaid10(DISK);
                     break;
                 default:
                     printf("ERROR: Reached impossible default block of recover switch statement");
@@ -209,9 +209,13 @@ int main(int argc, char * argv[]) {
 }
 
 void readRaid0 (int LBA, int SIZE){
-    for(int i = LBA; i < LBA + SIZE; ++i)
+
+    int i;
+    for(i = LBA; i < LBA + SIZE; ++i)
     {
-        if(hasFailed[(LBA % (ndisks*strip))/strip] || disk_array_read(da, (LBA % (ndisks*strip))/strip, (LBA/(strip * ndisks)) * strip + LBA % strip, buffer) != 0) printf("ERROR");
+        int currentDisk = (i % (ndisks*strip))/strip;
+        int currentBlock = (i/(strip * ndisks)) * strip + i % strip;
+        if(hasFailed[currentDisk] || disk_array_read(da, currentDisk, currentBlock, buffer) != 0) printf("ERROR");
         else printf("%s", buffer);        
         printf(" ");
     }
@@ -219,13 +223,67 @@ void readRaid0 (int LBA, int SIZE){
 }
 
 void writeRaid0 (int LBA, int SIZE, int VALUE){
+
     memset(buffer,VALUE,sizeof(buffer));
 
-    for(int i = LBA; i < LBA + SIZE; ++i)
+    int i;
+    for(i = LBA; i < LBA + SIZE; ++i)
     {
-        if(hasFailed[(LBA % (ndisks*strip))/strip] || disk_array_write(da, (LBA % (ndisks*strip))/strip, (LBA/(strip * ndisks)) * strip + LBA % strip, buffer) != 0) { } //FIX: Do something here
+        int currentDisk = (i % (ndisks*strip))/strip;
+        int currentBlock = (i/(strip * ndisks)) * strip + i % strip;
+        if(hasFailed[currentDisk] || disk_array_write(da, currentDisk, currentBlock, buffer) != 0) { } //FIX: Do something here
     }
 } 
+
+void readRaid10 (int LBA, int SIZE){
+
+    int usedDisks = ndisks/2;
+
+    int i;
+    for(i = LBA; i < LBA + SIZE; ++i)
+    {
+        int currentDisk = ((i % (usedDisks*strip))/strip) * 2;
+        int currentBlock = (i/(strip * usedDisks)) * strip + i % strip;
+
+        if(hasFailed[currentDisk] || disk_array_read(da, currentDisk, currentBlock, buffer) != 0) {
+            if(hasFailed[currentDisk + 1] || disk_array_read(da, currentDisk + 1, currentBlock, buffer) != 0) printf("ERROR");
+            else printf("%s", buffer);
+        }
+        else printf("%s", buffer);
+        printf(" ");
+    }
+    printf("\n");
+}
+
+void writeRaid10 (int LBA, int SIZE, int VALUE){
+
+    memset(buffer,VALUE,sizeof(buffer));
+    int usedDisks = ndisks/2;
+
+    int i;
+    for(i = LBA; i < LBA + SIZE; ++i)
+    {
+        int currentDisk = ((i % (usedDisks*strip))/strip) * 2;
+        int currentBlock = (i/(strip * usedDisks)) * strip + i % strip;
+
+        if(hasFailed[currentDisk] || disk_array_write(da, currentDisk, currentBlock, buffer) != 0) { } //FIX: Do something here
+        if(hasFailed[currentDisk + 1] || disk_array_write(da, currentDisk + 1, currentBlock, buffer) != 0) { } //FIX: Do something here
+
+    }
+}
+
+void recoverRaid10 (int DISK){
+    int recoveryDisk = DISK + ((DISK+1)%2) - (DISK%2);
+
+    if(hasFailed[recoveryDisk] == 0){
+        int i;
+        for(i = 0; i < nblocks; ++i)
+        {
+            disk_array_read(da, recoveryDisk, i, buffer);
+            disk_array_write(da, DISK, i, buffer);
+        }
+    }
+}
 
 void print_usage() {
     printf("use: raidsim -level [0|10|4|5] -strip num -disks num -size num -trace filename [-verbose]\n");
