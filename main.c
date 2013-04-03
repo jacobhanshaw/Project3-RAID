@@ -225,12 +225,14 @@ void writeRaid0 (int LBA, int SIZE, int VALUE){
     memset(buffer,VALUE,sizeof(buffer));
 
     int i;
+    int writeHasFailed = 0;
     for(i = LBA; i < LBA + SIZE; ++i)
     {
         int currentDisk = (i % (ndisks*strip))/strip;
         int currentBlock = (i/(strip * ndisks)) * strip + i % strip;
-        if(hasFailed[currentDisk] || disk_array_write(da, currentDisk, currentBlock, buffer) != 0) { } //FIX: Do something here
+        if(hasFailed[currentDisk] || disk_array_write(da, currentDisk, currentBlock, buffer) != 0) writeHasFailed = 1; 
     }
+    if(writeHasFailed != 0) printf("ERROR\n");
 } 
 
 void readRaid10 (int LBA, int SIZE){
@@ -257,17 +259,19 @@ void writeRaid10 (int LBA, int SIZE, int VALUE){
 
     memset(buffer,VALUE,sizeof(buffer));
     int usedDisks = ndisks/2;
-
+    int writeHasFailedA = 0;
+    int writeHasFailedB = 0;
     int i;
     for(i = LBA; i < LBA + SIZE; ++i)
     {
         int currentDisk = ((i % (usedDisks*strip))/strip) * 2;
         int currentBlock = (i/(strip * usedDisks)) * strip + i % strip;
 
-        if(hasFailed[currentDisk] || disk_array_write(da, currentDisk, currentBlock, buffer) != 0) { } //FIX: Do something here
-        if(hasFailed[currentDisk + 1] || disk_array_write(da, currentDisk + 1, currentBlock, buffer) != 0) { } //FIX: Do something here
+        if(hasFailed[currentDisk] || disk_array_write(da, currentDisk, currentBlock, buffer) != 0) writeHasFailedA = 1; 
+        if(hasFailed[currentDisk + 1] || disk_array_write(da, currentDisk + 1, currentBlock, buffer) != 0) writeHasFailedB = 1; 
 
     }
+    if(writeHasFailedA != 0 && writeHasFailedB != 0) printf("ERROR\n");
 }
 
 void recoverRaid10 (int DISK){
@@ -391,8 +395,8 @@ void recoverRaid4 (int DISK){
             }
 
             memset(mem,result,sizeof(mem));
-            disk_array_write(da, DISK, currentBlock, mem); //FIX: Check if correct
-        }
+            disk_array_write(da, DISK, currentBlock, mem); 
+            }
     }
 }
 
