@@ -328,33 +328,34 @@ void writeRaid4 (int LBA, int SIZE, int VALUE){
             int current;
             currentDisk = 0;
             if(!(LBA <= i - (i % (strip * usedDisks)))){
-                disk_array_read(da, currentDisk, currentBlock, mem);
+                if(disk_array_read(da, currentDisk, currentBlock, mem) != 0) writeHasFailed = 1;
                 current = blockToInt(mem);
                 while(current != VALUE){
                     result ^= current;
                     ++currentDisk;
-                    disk_array_read(da, currentDisk, currentBlock, mem);
+                    if(disk_array_read(da, currentDisk, currentBlock, mem) != 0) writeHasFailed = 1;
                     current = blockToInt(mem);
                 }
             }
-            if((usedDisks-currentDisk) % 2 == 0) result ^= VALUE;
+            if((usedDisks-currentDisk) % 2 == 0) result ^= VALUE; //This has to do with the property of XOR-ing the same value, if it is even number of XORs XOR ^ XOR with the same value equals 0, else an odd number of XXORS just results in the same result as a single XOR
+
             intToBlock(result, mem);
-            disk_array_write(da, usedDisks, currentBlock, mem);
+            if(disk_array_write(da, usedDisks, currentBlock, mem) != 0) writeHasFailed = 1;
         }
         else if(i + strip >= LBA + SIZE){
             int result = 0;
             char mem[nblocks];
             int current;
-            if((currentDisk % usedDisks) % 2 == 0) result ^= VALUE;
+            if((currentDisk % usedDisks) % 2 == 0) result ^= VALUE; 
             ++currentDisk; 
             while(currentDisk != usedDisks){
-                disk_array_read(da, currentDisk, currentBlock, mem);
+                if(disk_array_read(da, currentDisk, currentBlock, mem) != 0) writeHasFailed = 1;
                 current = blockToInt(mem);
                 result ^= current;
                 ++currentDisk;
             }
             intToBlock(result, mem);
-            disk_array_write(da, usedDisks, currentBlock, mem);
+            if(disk_array_write(da, usedDisks, currentBlock, mem) != 0) writeHasFailed = 1;
         }
     }
     if(writeHasFailed != 0) printf("ERROR\n");
@@ -364,46 +365,26 @@ void writeRaid4 (int LBA, int SIZE, int VALUE){
 void recoverRaid4 (int DISK){
     int usedDisks = ndisks - 1; //also is last disk in array (size - 1)
 
-    if(DISK == usedDisks) {       
-        int i;
-        for(i = 0; i < nblocks; ++i){
-            int currentBlock = (i/(strip * usedDisks)) * strip + i % strip;
+    int i;
+    for(i = 0; i < nblocks; ++i){
+        int currentBlock = (i/(strip * usedDisks)) * strip + i % strip;
 
-            int result = 0;
-            char mem[nblocks];
-            int current;
-            int currentDisk;
-            for(currentDisk = 0; currentDisk < usedDisks; ++currentDisk){
+        int result = 0;
+        char mem[nblocks];
+        int current;
+        int currentDisk;
+        for(currentDisk = 0; currentDisk < ndisks; ++currentDisk){
+            if(currentDisk != DISK){
                 disk_array_read(da, currentDisk, currentBlock, mem);
                 current = blockToInt(mem);
                 result ^= current;
             }
-
-            intToBlock(result, mem);
-            disk_array_write(da, usedDisks, currentBlock, mem);
         }
-    }
-    else{
-        int i;
-        for(i = 0; i < nblocks; ++i){
-            int currentBlock = (i/(strip * usedDisks)) * strip + i % strip;
 
-            int result = 0;
-            char mem[nblocks];
-            int current;
-            int currentDisk;
-            for(currentDisk = 0; currentDisk < ndisks; ++currentDisk){
-                if(currentDisk != DISK){
-                    disk_array_read(da, currentDisk, currentBlock, mem);
-                    current = blockToInt(mem);
-                    result ^= current;
-                }
-            }
-
-            intToBlock(result, mem);
-            disk_array_write(da, DISK, currentBlock, mem); 
-        }
+        intToBlock(result, mem);
+        disk_array_write(da, DISK, currentBlock, mem); 
     }
+
 }
 
 void readRaid5 (int LBA, int SIZE) {
@@ -435,7 +416,7 @@ void writeRaid5 (int LBA, int SIZE, int VALUE){
     for(i = LBA; i < LBA + SIZE; ++i)
     {
         int currentDisk = ((i % (usedDisks*strip))/strip);
-        int parityDisk = (i/(readDisks*strip))%readDisks);
+        int parityDisk = (i/(usedDisks*strip))%usedDisks;
         int currentBlock = (i/(strip * usedDisks)) * strip + i % strip;
         if(currentDisk != parityDisk && disk_array_write(da, currentDisk, currentBlock, buffer) != 0) writeHasFailed = 1;
 
@@ -444,34 +425,43 @@ void writeRaid5 (int LBA, int SIZE, int VALUE){
             char mem[nblocks];
             int current;
             currentDisk = 0;
+            if(currentDisk == parityDisk) ++currentDisk;
             if(!(LBA <= i - (i % (strip * usedDisks)))){
-                disk_array_read(da, currentDisk, currentBlock, mem);
+                if(disk_array_read(da, currentDisk, currentBlock, mem) != 0) writeHasFailed = 1;
                 current = blockToInt(mem);
                 while(current != VALUE){
                     result ^= current;
                     ++currentDisk;
-                    disk_array_read(da, currentDisk, currentBlock, mem);
+                    if(currentDisk == parityDisk) ++currentDisk;
+                    if(disk_array_read(da, currentDisk, currentBlock, mem) != 0) writeHasFailed = 1;
                     current = blockToInt(mem);
                 }
             }
-            if((usedDisks-currentDisk) % 2 == 0) result ^= VALUE;
+            int nonParityDisksLeftToXor = usedDisks-currentDisk;
+            if(parityDisk > currentDisk) --nonParityDisksLeftToXor; 
+            if((nonParityDisksLeftToXor) % 2 == 0) result ^= VALUE;
             intToBlock(result, mem);
-            disk_array_write(da, usedDisks, currentBlock, mem);
+            if(disk_array_write(da, parityDisk, currentBlock, mem) != 0) writeHasFailed = 1;
         }
         else if(i + strip >= LBA + SIZE){
-            int result = 0;
+            int result = 0;                       
             char mem[nblocks];
             int current;
-            if((currentDisk % usedDisks) % 2 == 0) result ^= VALUE;
+            int nDisksUsingValue = currentDisk + 1; //Calculate the number of disks using VALUE, if it is even XOR ^ XOR with the same value equals 0, else an odd number of XXORS just results in the same result as a single XOR
+
+            if(currentDisk >= parityDisk) --nDisksUsingValue;
+            if(nDisksUsingValue % 2 == 1) result ^= VALUE;
             ++currentDisk; 
-            while(currentDisk != usedDisks){
+            if(currentDisk == parityDisk) ++currentDisk;
+            while(currentDisk != ndisks){
                 disk_array_read(da, currentDisk, currentBlock, mem);
                 current = blockToInt(mem);
                 result ^= current;
                 ++currentDisk;
+                if(currentDisk == parityDisk) ++currentDisk;
             }
             intToBlock(result, mem);
-            disk_array_write(da, usedDisks, currentBlock, mem);
+            if(disk_array_write(da, parityDisk, currentBlock, mem) != 0) writeHasFailed = 1;
         }
     }
     if(writeHasFailed != 0) printf("ERROR\n");
@@ -482,25 +472,25 @@ void recoverRaid5 (int DISK){
 
     int usedDisks = ndisks - 1; //also is last disk in array (size - 1)
 
-        int i;
-        for(i = 0; i < nblocks; ++i){
-            int currentBlock = (i/(strip * usedDisks)) * strip + i % strip;
+    int i;
+    for(i = 0; i < nblocks; ++i){
+        int currentBlock = (i/(strip * usedDisks)) * strip + i % strip;
 
-            int result = 0;
-            char mem[nblocks];
-            int current;
-            int currentDisk;
-            for(currentDisk = 0; currentDisk < ndisks; ++currentDisk){
-                if(currentDisk != DISK){
-                    disk_array_read(da, currentDisk, currentBlock, mem);
-                    current = blockToInt(mem);
-                    result ^= current;
-                }
+        int result = 0;
+        char mem[nblocks];
+        int current;
+        int currentDisk;
+        for(currentDisk = 0; currentDisk < ndisks; ++currentDisk){
+            if(currentDisk != DISK){
+                disk_array_read(da, currentDisk, currentBlock, mem);
+                current = blockToInt(mem);
+                result ^= current;
             }
-
-            intToBlock(result, mem);
-            disk_array_write(da, DISK, currentBlock, mem); 
         }
+
+        intToBlock(result, mem);
+        disk_array_write(da, DISK, currentBlock, mem); 
+    }
 
 }
 
